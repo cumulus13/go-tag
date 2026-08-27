@@ -1,0 +1,14 @@
+# Build artifacts
+/tag
+/go-tag
+tag.exe
+go-tag.exe
+dist/
+
+# Local/machine-specific config (never commit real tokens or personal colors)
+tag.json
+.tag.json
+*.orig
+
+# Ignore Sublime Text project files
+*.sublime-*

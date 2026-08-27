@@ -1,0 +1,17 @@
+{
+  "tag_name": "#FFFF00",
+  "annotated": "#00FFAA",
+  "lightweight": "#AAAAAA",
+  "hash": "#00AAFF",
+  "date": "#AAAAFF",
+  "message": "#DDDDDD",
+  "tagger": "#FFAAFF",
+  "header": "#FF6B6B",
+  "remote": "#55AA00",
+  "success": "#55FF55",
+  "error": "#FF5555",
+  "warning": "#FFE66D",
+  "muted": "#888888",
+  "default_sort": "-creatordate",
+  "default_remote": "origin"
+}

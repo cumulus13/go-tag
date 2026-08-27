@@ -1,0 +1,176 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # needed for changelog generation
+
+      # ── Version ───────────────────────────────────────────────────────────
+      - name: Extract version
+        id: ver
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      # ── Go ────────────────────────────────────────────────────────────────
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      # ── Build all targets ─────────────────────────────────────────────────
+      # Release assets are named go-tag_<version>_<platform> to match the
+      # repo name; the compiled binary itself is still called `tag` (see
+      # Formula/go-tag.rb and scoop/go-tag-scoop.json), so after install
+      # users just run `tag --help`.
+      - name: Build binaries
+        env:
+          VERSION: ${{ steps.ver.outputs.VERSION }}
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p dist
+
+          build() {
+            local GOOS="$1" GOARCH="$2" GOARM="$3" SUFFIX="$4" LABEL="$5"
+            local OUT="dist/go-tag_${VERSION}_${LABEL}"
+            [ "$GOOS" = "windows" ] && OUT="${OUT}.exe"
+            echo "→ Building $LABEL …"
+            env GOOS="$GOOS" GOARCH="$GOARCH" GOARM="$GOARM" CGO_ENABLED=0 \
+              go build \
+                -trimpath \
+                -ldflags="-s -w -X main.Version=${VERSION}" \
+                -o "$OUT" .
+          }
+
+          # ── Linux ──────────────────────────────────────────────────────
+          build linux amd64   ""  ""  linux_amd64
+          build linux 386     ""  ""  linux_386
+          build linux arm64   ""  ""  linux_arm64
+          build linux arm     7   ""  linux_armv7          # Raspberry Pi 3/4, Termux on armv7
+          build linux arm     6   ""  linux_armv6          # Raspberry Pi Zero / 1
+          build linux arm     5   ""  linux_armv5
+          build linux mips    ""  ""  linux_mips
+          build linux mipsle  ""  ""  linux_mipsle
+          build linux mips64  ""  ""  linux_mips64
+          build linux riscv64 ""  ""  linux_riscv64
+          build linux s390x   ""  ""  linux_s390x
+          build linux ppc64le ""  ""  linux_ppc64le
+
+          # ── macOS ──────────────────────────────────────────────────────
+          build darwin amd64 "" "" darwin_amd64           # Intel Mac
+          build darwin arm64 "" "" darwin_arm64           # Apple Silicon
+
+          # ── Windows ────────────────────────────────────────────────────
+          build windows amd64 "" "" windows_amd64
+          build windows 386   "" "" windows_386
+          build windows arm64 "" "" windows_arm64
+
+          # ── FreeBSD ────────────────────────────────────────────────────
+          build freebsd amd64 "" "" freebsd_amd64
+          build freebsd arm64 "" "" freebsd_arm64
+          build freebsd arm   7  "" freebsd_armv7
+
+          # ── Android (Termux) ───────────────────────────────────────────
+          # Termux runs on arm64 and armv7; tagged separately for clarity
+          build linux arm64 "" "" android_arm64_termux
+          build linux arm   7 "" android_armv7_termux
+
+          # ── Stable "latest" aliases ──────────────────────────────────────
+          # README instructs users to download a literal "_latest_" filename
+          # via GitHub's /releases/latest/download/ URL. That URL only works
+          # if a file with that exact name exists in the release assets, so
+          # publish an alias copy alongside each versioned Termux binary.
+          cp "dist/go-tag_${VERSION}_android_arm64_termux" \
+             "dist/go-tag_latest_android_arm64_termux"
+          cp "dist/go-tag_${VERSION}_android_armv7_termux" \
+             "dist/go-tag_latest_android_armv7_termux"
+
+          # ── OpenBSD / NetBSD ───────────────────────────────────────────
+          build openbsd  amd64 "" "" openbsd_amd64
+          build netbsd   amd64 "" "" netbsd_amd64
+
+      # ── Checksums ─────────────────────────────────────────────────────────
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * | tee SHA256SUMS
+          # also generate individual .sha256 sidecars for single-file verification
+          for f in go-tag_*; do
+            sha256sum "$f" > "${f}.sha256"
+          done
+
+      # ── Scoop manifest ────────────────────────────────────────────────────
+      - name: Update Scoop manifest
+        env:
+          VERSION: ${{ steps.ver.outputs.VERSION }}
+        run: |
+          HASH=$(sha256sum "dist/go-tag_${VERSION}_windows_amd64.exe" | awk '{print $1}')
+          python3 - <<'PY'
+          import json, os, sys
+          path = "scoop/go-tag-scoop.json"
+          with open(path) as f:
+              m = json.load(f)
+          m["version"] = os.environ["VERSION"]
+          fname = f"go-tag_{os.environ['VERSION']}_windows_amd64.exe"
+          m["url"] = f"https://github.com/cumulus13/go-tag/releases/download/v{os.environ['VERSION']}/{fname}"
+          m["hash"] = os.environ.get("HASH", m.get("hash",""))
+          with open(path, "w") as f:
+              json.dump(m, f, indent=2)
+              f.write("\n")
+          PY
+
+      # ── Homebrew formula ──────────────────────────────────────────────────
+      - name: Update Homebrew formula
+        env:
+          VERSION: ${{ steps.ver.outputs.VERSION }}
+        run: |
+          AMD64_HASH=$(sha256sum "dist/go-tag_${VERSION}_darwin_amd64" | awk '{print $1}')
+          ARM64_HASH=$(sha256sum "dist/go-tag_${VERSION}_darwin_arm64" | awk '{print $1}')
+          python3 - <<'PY'
+          import os, re
+          path = "Formula/go-tag.rb"
+          ver = os.environ["VERSION"]
+          amd64 = os.environ.get("AMD64_HASH","")
+          arm64 = os.environ.get("ARM64_HASH","")
+          with open(path) as f:
+              text = f.read()
+          text = re.sub(r'version "[^"]*"', f'version "{ver}"', text)
+          text = re.sub(r'(darwin-amd64.*?sha256 ")[^"]*"', lambda m: m.group(0)[:m.group(0).index('sha256 "') + 8] + amd64 + '"', text)
+          text = re.sub(r'(darwin-arm64.*?sha256 ")[^"]*"', lambda m: m.group(0)[:m.group(0).index('sha256 "') + 8] + arm64 + '"', text)
+          with open(path, "w") as f:
+              f.write(text)
+          PY
+
+      # ── Commit manifests back to master ───────────────────────────────────
+      - name: Commit manifests
+        env:
+          VERSION: ${{ steps.ver.outputs.VERSION }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add scoop/go-tag-scoop.json Formula/go-tag.rb 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "chore: update manifests for v${VERSION} [skip ci]"
+          git push origin HEAD:master || true
+
+      # ── GitHub Release ────────────────────────────────────────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ steps.ver.outputs.VERSION }}
+          tag_name: ${{ github.ref }}
+          generate_release_notes: true
+          files: |
+            dist/*
