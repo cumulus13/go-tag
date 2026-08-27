@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Colorized, safety-checked git tag management CLI",
   "homepage": "https://github.com/cumulus13/go-tag",
   "license": "MIT",
@@ -51,6 +51,6 @@
       }
     }
   },
-  "url": "https://github.com/cumulus13/go-tag/releases/download/v1.0.0/go-tag_1.0.0_windows_amd64.exe",
+  "url": "https://github.com/cumulus13/go-tag/releases/download/v1.0.1/go-tag_1.0.1_windows_amd64.exe",
   "hash": ""
 }

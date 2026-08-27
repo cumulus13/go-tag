@@ -1,7 +1,7 @@
 class GoTag < Formula
   desc "Colorized, safety-checked git tag management CLI"
   homepage "https://github.com/cumulus13/go-tag"
-  version "1.0.0"
+  version "1.0.1"
   license "MIT"
 
   on_macos do
